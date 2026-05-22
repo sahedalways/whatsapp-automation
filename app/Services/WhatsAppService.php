@@ -3,20 +3,28 @@
 namespace App\Services;
 
 use App\Interfaces\WhatsAppRepositoryInterface;
+use Illuminate\Support\Facades\Http;
 
 class WhatsAppService
 {
     protected $repo;
 
-    public function __construct(WhatsAppRepositoryInterface $repo)
-    {
+    protected $aiService;
+
+    public function __construct(
+        WhatsAppRepositoryInterface $repo,
+        GroqService $aiService
+    ) {
         $this->repo = $repo;
+        $this->aiService = $aiService;
     }
 
     public function handleIncomingMessage($phone, $message)
     {
 
-        $reply = $this->generateReply($message);
+        $systemPrompt = include base_path('app/AI/prompts/softivon.php');
+
+        $reply = $this->aiService->generateReply($message, $systemPrompt);
 
 
         $this->repo->saveMessage([
@@ -26,21 +34,27 @@ class WhatsAppService
         ]);
 
 
+        $this->sendMessage($phone, $reply);
+
         return $reply;
     }
 
-    private function generateReply($message)
+
+    public function sendMessage($phone, $message)
     {
-        $message = strtolower($message);
+        $token = config('services.whatsapp.access_token');
+        $phoneNumberId = config('services.whatsapp.phone_number_id');
 
-        if (str_contains($message, 'price')) {
-            return "Price starts from 5000 BDT";
-        }
+        $url = "https://graph.facebook.com/v22.0/{$phoneNumberId}/messages";
 
-        if (str_contains($message, 'hello')) {
-            return "Hello! How can I help you?";
-        }
-
-        return "Sorry, I didn't understand. Please explain.";
+        return Http::withToken($token)
+            ->post($url, [
+                'messaging_product' => 'whatsapp',
+                'to' => $phone,
+                'type' => 'text',
+                'text' => [
+                    'body' => $message
+                ]
+            ]);
     }
 }
